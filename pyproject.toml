@@ -1,0 +1,30 @@
+[project]
+name = "monty-workspace"
+version = "0.1.0"
+description = "Sandboxed Python execution with host functions, web UI, and MCP server"
+requires-python = ">=3.11"
+dependencies = [
+    "pydantic>=2.0",
+    "pydantic-settings>=2.0",
+    "pydantic-monty",
+    "starlette>=0.40",
+    "uvicorn[standard]>=0.30",
+    "mcp[cli]>=1.0",
+]
+
+[project.optional-dependencies]
+examples = [
+    "faker",
+    "pandas",
+    "networkx",
+    "scipy",
+    "numpy",
+]
+
+[project.scripts]
+monty-web = "monty_workspace.server:main"
+monty-mcp = "monty_workspace.mcp:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
