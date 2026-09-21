@@ -5,7 +5,7 @@ Sandboxed Python execution environment with host functions, web UI, and MCP serv
 ## Install
 
 ```bash
-pip install monty-workspace
+pip install git+https://github.com/FukKwang/monty-workspace.git
 ```
 
 ## Quick Start
