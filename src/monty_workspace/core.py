@@ -6,6 +6,7 @@ from typing import Any, Callable
 from .config import MontyConfig, SandboxConfig, ServerConfig, McpConfig
 from .sandbox.registry import HostFunctionRegistry
 from .sandbox.runner import SandboxRunner, RunResult, TestResult
+from .storage import Storage
 
 
 class Monty:
@@ -29,6 +30,7 @@ class Monty:
 
         self.config = MontyConfig(**overrides)
         self.registry = HostFunctionRegistry()
+        self.storage = Storage(self.config.workspace_dir)
         self._runner: SandboxRunner | None = None
 
     @property
@@ -41,7 +43,19 @@ class Monty:
         return self.registry.register(name, description, human_input=human_input)
 
     def run(self, code: str, inputs: dict[str, Any] | None = None, **kwargs) -> RunResult:
-        return self.runner.run(code, inputs, **kwargs)
+        return self.runner.run(code, inputs, storage=self.storage, **kwargs)
+
+    def resume_snapshot(self, snapshot_id: int, value: Any) -> RunResult:
+        snap = self.storage.get_snapshot(snapshot_id)
+        if not snap:
+            return RunResult(success=False, error=f"Snapshot {snapshot_id} not found")
+        if snap["status"] != "pending":
+            return RunResult(success=False, error=f"Snapshot {snapshot_id} already {snap['status']}")
+        result = self.runner.resume_snapshot(
+            snap["blob"], value, storage=self.storage, file_name=snap["file_name"],
+        )
+        self.storage.resolve_snapshot(snapshot_id, "resumed" if not result.suspended else "chained")
+        return result
 
     def run_tests(self, solution_code: str, test_code: str, **kwargs) -> TestResult:
         return self.runner.run_tests(solution_code, test_code, **kwargs)

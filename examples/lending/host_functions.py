@@ -13,6 +13,8 @@ from __future__ import annotations
 import hashlib
 from typing import Any
 
+from monty_workspace import log, log_debug, log_warning
+
 from faker import Faker
 from pydantic import BaseModel
 
@@ -129,7 +131,9 @@ def query_borrower(args_dict: dict[str, Any]) -> dict[str, Any]:
     args = QueryBorrowerArgs.model_validate(args_dict)
     cache_key = f"borrower:{args.name.lower()}"
     if cache_key in _registry:
+        log_debug(f"cache hit for {args.name}")
         return _registry[cache_key]
+    log(f"generating borrower: {args.name}")
     _seeded(cache_key)
     bid = fake.uuid4()
     borrower = {
@@ -152,9 +156,13 @@ def query_loans(args_dict: dict[str, Any]) -> list[dict[str, Any]]:
     args = QueryLoansArgs.model_validate(args_dict)
     cache_key = f"loans:{args.borrower_id}"
     if cache_key in _registry:
+        log_debug(f"cache hit, {len(_registry[cache_key])} loans")
         return _registry[cache_key]
     _seeded(cache_key)
     count = fake.random_int(1, 5)
+    log(f"generating {count} loans for borrower {args.borrower_id[:8]}...")
+    if count >= 4:
+        log_warning(f"borrower has {count} loans, high exposure")
     loans = []
     for i in range(count):
         _seeded(f"loan:{args.borrower_id}:{i}")

@@ -5,14 +5,17 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING
 
-from mcp.server.fastmcp import FastMCP
+try:
+    from mcp.server.fastmcp import FastMCP as MCPServer
+except (ImportError, ModuleNotFoundError):
+    from mcp.server.mcpserver import MCPServer
 
 if TYPE_CHECKING:
     from ..core import Monty
 
 
-def create_mcp_server(monty: Monty) -> FastMCP:
-    mcp = FastMCP(monty.config.mcp.name)
+def create_mcp_server(monty: Monty) -> MCPServer:
+    mcp = MCPServer(monty.config.mcp.name)
 
     @mcp.tool()
     def run_code(code: str, inputs: str = "{}") -> str:
@@ -26,6 +29,7 @@ def create_mcp_server(monty: Monty) -> FastMCP:
             "success": run_result.success,
             "value": run_result.value if run_result.success else None,
             "error": run_result.error,
+            "function_logs": run_result.function_logs or None,
         }, default=str)
 
     @mcp.tool()
@@ -49,43 +53,67 @@ def create_mcp_server(monty: Monty) -> FastMCP:
 
     @mcp.tool()
     def list_files() -> str:
-        """List Python files in workspace directory."""
-        files = sorted(f.name for f in monty.workspace.glob("*.py"))
-        return json.dumps(files)
+        """List Python files in workspace."""
+        return json.dumps(monty.storage.list_files())
 
     @mcp.tool()
     def read_file(name: str) -> str:
         """Read a Python file from workspace."""
-        path = monty.workspace / name
-        if not path.exists() or ".." in name or "/" in name:
+        f = monty.storage.get_file(name)
+        if not f:
             return json.dumps({"error": f"{name} not found"})
-        return path.read_text()
+        return f["content"]
 
     @mcp.tool()
     def write_file(name: str, content: str) -> str:
         """Write/update a Python file in workspace."""
         if ".." in name or "/" in name:
             return json.dumps({"error": "invalid filename"})
-        path = monty.workspace / name
-        path.write_text(content)
-        return json.dumps({"ok": True, "name": name})
+        result = monty.storage.save_file(name, content)
+        return json.dumps({"ok": True, **result})
+
+    @mcp.tool()
+    def list_snapshots(status: str = "pending") -> str:
+        """List execution snapshots (suspended runs awaiting resume). Status: pending, resumed, expired."""
+        return json.dumps(monty.storage.list_snapshots(status=status or None))
+
+    @mcp.tool()
+    def resume_snapshot(snapshot_id: int, value: str = "null") -> str:
+        """Resume a suspended execution snapshot with a return value. Value is JSON-parsed."""
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            parsed = value
+        result = monty.resume_snapshot(snapshot_id, parsed)
+        if result.suspended:
+            return json.dumps({
+                "suspended": True,
+                "snapshot_id": result.snapshot_id,
+                "function_name": result.snapshot_function,
+                "args": result.snapshot_args,
+            })
+        return json.dumps({
+            "success": result.success,
+            "value": result.value if result.success else None,
+            "error": result.error,
+        }, default=str)
 
     @mcp.tool()
     def run_file(name: str, inputs: str = "{}") -> str:
         """Run a workspace file in sandbox."""
-        path = monty.workspace / name
-        if not path.exists() or ".." in name or "/" in name:
+        f = monty.storage.get_file(name)
+        if not f:
             return json.dumps({"success": False, "error": f"{name} not found"})
         try:
             parsed_inputs = json.loads(inputs)
         except json.JSONDecodeError:
             return json.dumps({"success": False, "error": "Invalid JSON for inputs"})
-        code = path.read_text()
-        run_result = monty.run(code, parsed_inputs)
+        run_result = monty.run(f["content"], parsed_inputs)
         return json.dumps({
             "success": run_result.success,
             "value": run_result.value if run_result.success else None,
             "error": run_result.error,
+            "function_logs": run_result.function_logs or None,
         }, default=str)
 
     return mcp
