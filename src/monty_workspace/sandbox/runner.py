@@ -33,6 +33,14 @@ class SandboxRunner:
         self._registry = registry
         self._limits = limits
 
+    @staticmethod
+    def _compile_check(code: str, label: str = "<user>") -> str | None:
+        try:
+            compile(code, label, "exec")
+            return None
+        except SyntaxError as e:
+            return f"SyntaxError: {e.msg} (line {e.lineno})"
+
     def run(self, code: str, inputs: dict[str, Any] | None = None,
             allowlist: list[str] | None = None,
             limits: dict | None = None,
@@ -40,6 +48,10 @@ class SandboxRunner:
             on_suspend: Any = None,
             storage: Any = None,
             file_name: str | None = None) -> RunResult:
+        err = self._compile_check(code)
+        if err:
+            return RunResult(success=False, error=err)
+
         try:
             from pydantic_monty import Monty, MontyComplete, FunctionSnapshot, ResourceLimits
         except ImportError as e:
@@ -163,6 +175,14 @@ class SandboxRunner:
                   limits: dict | None = None,
                   use_samples: bool = True) -> TestResult:
         import re as _re
+
+        err = self._compile_check(solution_code, "<solution>")
+        if err:
+            return TestResult(passed=False, failures=[err], total=0)
+        err = self._compile_check(test_code, "<test>")
+        if err:
+            return TestResult(passed=False, failures=[err], total=0)
+
         try:
             from pydantic_monty import Monty, ResourceLimits
         except ImportError as e:
