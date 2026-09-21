@@ -8,6 +8,8 @@ from .sandbox.registry import HostFunctionRegistry
 from .sandbox.runner import SandboxRunner, RunResult, TestResult
 from .storage import Storage
 
+from .sandbox.formulas import FormulaRegistry
+
 
 class Monty:
     def __init__(
@@ -32,12 +34,18 @@ class Monty:
         self.registry = HostFunctionRegistry()
         self.storage = Storage(self.config.workspace_dir)
         self._runner: SandboxRunner | None = None
+        self.formulas = FormulaRegistry(self.storage)
+        self._register_formula_functions()
 
     @property
     def runner(self) -> SandboxRunner:
         if self._runner is None:
             self._runner = SandboxRunner(self.registry, self.config.sandbox.clamp())
         return self._runner
+
+    def _register_formula_functions(self):
+        for name, (desc, fn) in self.formulas.build_host_functions().items():
+            self.registry.register(name, desc)(fn)
 
     def host_function(self, name: str, description: str, *,
                       human_input: bool = False, sample: Any = None) -> Callable:

@@ -221,6 +221,92 @@ Each field under `Args:` or `Returns:` follows `field_name: Description text` fo
 - **Host functions** — call registered host functions directly by name (e.g., `query_borrower({...})`). Use `GET /api/completions` to discover available functions.
 - **Test files** — prefix with `test_` (e.g., `test_borrower_profile.py`). They pair with the solution file automatically.
 
+## Formula Registry
+
+Persistent, composable symbolic formulas powered by SymPy. Define formulas once, reuse across sandbox code with full audit logging.
+
+### Define Formulas
+
+```python
+from monty_workspace import Monty
+
+monty = Monty(workspace_dir="./codes")
+
+# Define base formula
+monty.formulas.define("PMT", "P * r / (1 - (1+r)**(-n))", ["P", "r", "n"], "Monthly payment")
+
+# Compose — total_cost references PMT by name
+monty.formulas.define("total_cost", "PMT * n", ["PMT", "n"], "Total paid over loan life")
+
+# Chain further — interest_paid references total_cost (which references PMT)
+monty.formulas.define("interest_paid", "total_cost - P", ["total_cost", "P"], "Total interest")
+```
+
+Formulas are persisted to SQLite and loaded automatically on startup.
+
+### Use in Sandbox Code
+
+Formulas are available as host functions. Sandbox code calls them directly:
+
+```python
+# Evaluate with auto-composition — pass only base variables
+pmt = formula_evaluate({"formula": "PMT", "values": {"P": 1000000, "r": 0.01, "n": 360}})
+# Returns: {"result": "10286.13...", "numeric": 10286.13, "latex": "..."}
+
+# Evaluate composed formula — resolves PMT → total_cost → interest_paid automatically
+interest = formula_evaluate({"formula": "interest_paid", "values": {"P": 1000000, "r": 0.01, "n": 360}})
+
+# Differentiate — how does PMT change with rate?
+sensitivity = formula_diff({"formula": "PMT", "var": "r"})
+
+# Partial substitution — fix some vars, keep rest symbolic
+formula_partial({"formula": "PMT", "values": {"P": 1000000}})
+# Returns formula still in terms of r and n
+
+# Define ephemeral formula (not persisted)
+formula_define({"name": "area", "expr": "pi * r**2", "vars": ["r"], "persist": False})
+
+result = formula_evaluate({"formula": "area", "values": {"r": 5}})
+# Returns: {"result": "25*pi", "numeric": 78.54, "latex": "25 \\pi"}
+```
+
+### Host Functions
+
+| Function | Description |
+|----------|-------------|
+| `formula_define` | Define and persist a formula |
+| `formula_evaluate` | Evaluate with values (auto-resolves composition) |
+| `formula_partial` | Substitute some values, keep rest symbolic |
+| `formula_diff` | Differentiate formula |
+| `formula_integrate` | Integrate formula |
+| `formula_solve` | Solve formula = 0 for a variable |
+| `formula_series` | Taylor series expansion |
+| `formula_info` | Get formula details with expanded form |
+| `formula_list` | List all registered formulas |
+| `formula_delete` | Delete a formula |
+
+### Formula API
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/formulas` | List all formulas |
+| GET | `/api/formula?name=<name>` | Get formula details |
+| POST | `/api/formula` | Define/update formula |
+| DELETE | `/api/formula` | Delete formula |
+| POST | `/api/formula/evaluate` | Evaluate formula with values |
+| GET | `/api/formula/logs` | Audit log (by name or run_id) |
+
+### Audit Logging
+
+Every formula operation is logged to `formula_logs` table with:
+- Operation type (define, evaluate, differentiate, solve, etc.)
+- Input arguments and result
+- Error (if any)
+- Duration in milliseconds
+- Timestamp and optional `run_id` linking to sandbox execution
+
+Logs are visible in the Formulas tab in the web UI and via `GET /api/formula/logs`.
+
 ## MCP Server
 
 The MCP server exposes the same functionality as tools for LLM agents:

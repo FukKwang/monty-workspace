@@ -74,6 +74,37 @@ class Storage:
                 created_at TEXT NOT NULL
             );
             CREATE INDEX IF NOT EXISTS idx_function_logs_run ON function_logs(run_id);
+
+            CREATE TABLE IF NOT EXISTS formulas (
+                name TEXT PRIMARY KEY,
+                expr TEXT NOT NULL,
+                vars TEXT NOT NULL DEFAULT '[]',
+                description TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS formula_versions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                formula_name TEXT NOT NULL REFERENCES formulas(name) ON DELETE CASCADE,
+                expr TEXT NOT NULL,
+                vars TEXT NOT NULL DEFAULT '[]',
+                description TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_formula_versions ON formula_versions(formula_name, created_at DESC);
+            CREATE TABLE IF NOT EXISTS formula_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_id INTEGER REFERENCES runs(id),
+                formula_name TEXT NOT NULL,
+                operation TEXT NOT NULL,
+                args TEXT NOT NULL DEFAULT '{}',
+                result TEXT,
+                error TEXT,
+                duration_ms INTEGER,
+                created_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_formula_logs_run ON formula_logs(run_id);
+            CREATE INDEX IF NOT EXISTS idx_formula_logs_name ON formula_logs(formula_name, created_at DESC);
         """)
 
     def _import_existing_files(self, workspace_dir: Path):
@@ -217,6 +248,81 @@ class Storage:
         )
         self._conn.commit()
         return cur.rowcount > 0
+
+    # --- Formulas ---
+
+    def list_formulas(self) -> list[dict]:
+        rows = self._conn.execute("SELECT name, expr, vars, description, created_at, updated_at FROM formulas ORDER BY name").fetchall()
+        return [{**dict(r), "vars": json.loads(r["vars"])} for r in rows]
+
+    def get_formula(self, name: str) -> dict | None:
+        row = self._conn.execute("SELECT * FROM formulas WHERE name = ?", (name,)).fetchone()
+        if not row:
+            return None
+        d = dict(row)
+        d["vars"] = json.loads(d["vars"])
+        return d
+
+    def save_formula(self, name: str, expr: str, vars: list[str], description: str = "") -> dict:
+        now = _now()
+        existing = self.get_formula(name)
+        if existing:
+            self._conn.execute(
+                "INSERT INTO formula_versions (formula_name, expr, vars, description, created_at) VALUES (?, ?, ?, ?, ?)",
+                (name, existing["expr"], json.dumps(existing["vars"]), existing["description"], existing["updated_at"]),
+            )
+            self._conn.execute(
+                "UPDATE formulas SET expr = ?, vars = ?, description = ?, updated_at = ? WHERE name = ?",
+                (expr, json.dumps(vars), description, now, name),
+            )
+        else:
+            self._conn.execute(
+                "INSERT INTO formulas (name, expr, vars, description, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+                (name, expr, json.dumps(vars), description, now, now),
+            )
+        self._conn.commit()
+        return {"name": name, "updated_at": now}
+
+    def delete_formula(self, name: str) -> bool:
+        cur = self._conn.execute("DELETE FROM formulas WHERE name = ?", (name,))
+        self._conn.commit()
+        return cur.rowcount > 0
+
+    def formula_versions(self, name: str, limit: int = 20) -> list[dict]:
+        rows = self._conn.execute(
+            "SELECT id, expr, vars, description, created_at FROM formula_versions WHERE formula_name = ? ORDER BY created_at DESC LIMIT ?",
+            (name, limit),
+        ).fetchall()
+        return [{**dict(r), "vars": json.loads(r["vars"])} for r in rows]
+
+    def log_formula_op(self, *, run_id: int | None, formula_name: str, operation: str,
+                       args: dict[str, Any], result: Any = None, error: str | None = None,
+                       duration_ms: int | None = None) -> int:
+        now = _now()
+        cur = self._conn.execute(
+            "INSERT INTO formula_logs (run_id, formula_name, operation, args, result, error, duration_ms, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (run_id, formula_name, operation, json.dumps(args, default=str),
+             json.dumps(result, default=str) if result is not None else None,
+             error, duration_ms, now),
+        )
+        self._conn.commit()
+        return cur.lastrowid
+
+    def list_formula_logs(self, formula_name: str | None = None, run_id: int | None = None, limit: int = 50) -> list[dict]:
+        if run_id is not None:
+            rows = self._conn.execute(
+                "SELECT * FROM formula_logs WHERE run_id = ? ORDER BY id", (run_id,),
+            ).fetchall()
+        elif formula_name:
+            rows = self._conn.execute(
+                "SELECT * FROM formula_logs WHERE formula_name = ? ORDER BY created_at DESC LIMIT ?",
+                (formula_name, limit),
+            ).fetchall()
+        else:
+            rows = self._conn.execute(
+                "SELECT * FROM formula_logs ORDER BY created_at DESC LIMIT ?", (limit,),
+            ).fetchall()
+        return [dict(r) for r in rows]
 
     def close(self):
         self._conn.close()

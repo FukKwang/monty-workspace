@@ -169,7 +169,7 @@ letter-spacing:.5px;margin-top:.5rem;margin-bottom:.15rem}
 
 
 def _page_html(body: str, active: str = "editor") -> str:
-    tabs = [("editor", "Editor"), ("functions", "Functions"), ("history", "History")]
+    tabs = [("editor", "Editor"), ("functions", "Functions"), ("formulas-tab", "Formulas"), ("history", "History")]
     nav = '<span class="logo">Monty</span>\n'
     for key, label in tabs:
         cls = "active" if active == key else ""
@@ -1049,6 +1049,168 @@ function escHtml(s) {{
 </script>"""
 
 
+def _formulas_tab_html() -> str:
+    assert _monty is not None
+    formulas = _monty.formulas.list_all()
+    cards = ""
+    for f in formulas:
+        vars_str = ", ".join(f["vars"]) if f["vars"] else ""
+        desc = f'<p>{_e(f["description"])}</p>' if f["description"] else ""
+        cards += (
+            f'<div class="fn-card" data-name="{_e(f["name"])}">'
+            f'<h4>{_e(f["name"])}({_e(vars_str)})'
+            f'<button class="btn btn-danger btn-sm" style="float:right;font-size:.7rem" '
+            f'onclick="deleteFormula(\'{_e(f["name"])}\')">Delete</button></h4>'
+            f'{desc}'
+            f'<p style="font-family:ui-monospace,monospace;font-size:.82rem">{_e(f["expr"])}</p>'
+        )
+        if f["expanded"] != f["expr"]:
+            cards += f'<p style="font-size:.78rem;color:var(--dim)">expanded: {_e(f["expanded"])}</p>'
+        cards += '</div>\n'
+    if not cards:
+        cards = '<div class="empty">No formulas defined yet.</div>'
+
+    return f"""
+<div class="grid-2">
+  <div>
+    <div class="panel">
+      <div class="panel-header"><h3>Formulas ({len(formulas)})</h3></div>
+      <div id="formula-list">{cards}</div>
+    </div>
+    <div class="panel">
+      <div class="panel-header"><h3>Define Formula</h3></div>
+      <div class="panel-body">
+        <div class="inputs-form">
+          <label>Name</label><input type="text" id="f-name" placeholder="PMT">
+          <label>Expression</label><input type="text" id="f-expr" placeholder="P * r / (1 - (1+r)**(-n))">
+          <label>Variables</label><input type="text" id="f-vars" placeholder="P, r, n">
+          <label>Description</label><input type="text" id="f-desc" placeholder="Monthly payment">
+        </div>
+        <button class="btn btn-primary" onclick="defineFormula()" style="margin-top:.5rem">Define</button>
+        <div id="f-result" style="margin-top:.5rem"></div>
+      </div>
+    </div>
+  </div>
+  <div>
+    <div class="panel">
+      <div class="panel-header"><h3>Evaluate</h3></div>
+      <div class="panel-body">
+        <div class="inputs-form">
+          <label>Formula</label><input type="text" id="f-eval-name" placeholder="PMT">
+          <label>Values (JSON)</label><input type="text" id="f-eval-values" placeholder='{{"P": 1000000, "r": 0.01, "n": 360}}'>
+        </div>
+        <button class="btn btn-primary" onclick="evalFormula()" style="margin-top:.5rem">Evaluate</button>
+        <div class="output-area" id="f-eval-result" style="margin-top:.5rem;min-height:60px">Results appear here...</div>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="panel-header"><h3>Audit Log</h3></div>
+      <div id="formula-audit" style="max-height:400px;overflow-y:auto">
+        <div class="empty">Select a formula or evaluate to see logs.</div>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+function defineFormula() {{
+  var name = document.getElementById('f-name').value.trim();
+  var expr = document.getElementById('f-expr').value.trim();
+  var vars = document.getElementById('f-vars').value.split(',').map(function(v){{ return v.trim(); }}).filter(Boolean);
+  var desc = document.getElementById('f-desc').value.trim();
+  if (!name || !expr) return;
+  fetch('/api/formula', {{
+    method: 'POST',
+    headers: {{'Content-Type': 'application/json'}},
+    body: JSON.stringify({{name: name, expr: expr, vars: vars, description: desc}})
+  }}).then(function(r){{ return r.json(); }}).then(function(d) {{
+    var el = document.getElementById('f-result');
+    if (d.error) {{
+      el.innerHTML = '<span style="color:var(--err)">' + d.error + '</span>';
+    }} else {{
+      el.innerHTML = '<span style="color:var(--ok)">Defined: ' + d.name + ' = ' + d.expr + '</span>';
+      refreshFormulas();
+      loadAuditLog(name);
+    }}
+  }});
+}}
+
+function evalFormula() {{
+  var name = document.getElementById('f-eval-name').value.trim();
+  var valStr = document.getElementById('f-eval-values').value.trim();
+  var out = document.getElementById('f-eval-result');
+  if (!name) return;
+  var values = {{}};
+  try {{ values = JSON.parse(valStr || '{{}}'); }} catch(e) {{
+    out.textContent = 'Invalid JSON: ' + e;
+    out.className = 'output-area err';
+    return;
+  }}
+  out.textContent = 'Evaluating...';
+  out.className = 'output-area';
+  fetch('/api/formula/evaluate', {{
+    method: 'POST',
+    headers: {{'Content-Type': 'application/json'}},
+    body: JSON.stringify({{formula: name, values: values}})
+  }}).then(function(r){{ return r.json(); }}).then(function(d) {{
+    if (d.error) {{
+      out.textContent = d.error;
+      out.className = 'output-area err';
+    }} else {{
+      out.textContent = 'Result: ' + d.result + '\\nNumeric: ' + d.numeric + '\\nLaTeX: ' + d.latex;
+      out.className = 'output-area ok';
+      loadAuditLog(name);
+    }}
+  }});
+}}
+
+function deleteFormula(name) {{
+  if (!confirm('Delete formula ' + name + '?')) return;
+  fetch('/api/formula', {{
+    method: 'DELETE',
+    headers: {{'Content-Type': 'application/json'}},
+    body: JSON.stringify({{name: name}})
+  }}).then(function(){{ refreshFormulas(); }});
+}}
+
+function refreshFormulas() {{
+  fetch('/formulas-tab').then(function(r){{ return r.text(); }}).then(function(html) {{
+    document.getElementById('main').innerHTML = html;
+  }});
+}}
+
+function loadAuditLog(name) {{
+  var url = name ? '/api/formula/logs?name=' + encodeURIComponent(name) : '/api/formula/logs';
+  fetch(url).then(function(r){{ return r.json(); }}).then(function(logs) {{
+    var area = document.getElementById('formula-audit');
+    if (!logs.length) {{
+      area.innerHTML = '<div class="empty">No logs yet.</div>';
+      return;
+    }}
+    area.innerHTML = logs.map(function(l) {{
+      var ts = (l.created_at || '').slice(0,19).replace('T',' ');
+      var status = l.error ? 'err' : 'ok';
+      var icon = l.error ? '<span style="color:var(--err)">&#10007;</span>' : '<span style="color:var(--ok)">&#10003;</span>';
+      var detail = l.error || (l.result || '');
+      if (typeof detail !== 'string') detail = JSON.stringify(detail);
+      if (detail.length > 120) detail = detail.slice(0,120) + '...';
+      return '<div style="padding:.4rem .75rem;border-bottom:1px solid var(--border);font-size:.82rem">' +
+        icon + ' <span style="color:var(--accent);font-weight:600;font-family:ui-monospace,monospace">' + (l.operation || '') + '</span>' +
+        ' <span style="font-family:ui-monospace,monospace">' + (l.formula_name || '') + '</span>' +
+        (l.duration_ms != null ? ' <span style="color:var(--dim);font-size:.75rem">' + l.duration_ms + 'ms</span>' : '') +
+        '<div style="color:var(--dim);font-size:.78rem;white-space:pre-wrap;max-height:80px;overflow:hidden">' + detail + '</div>' +
+        '<div style="color:#9ca3af;font-size:.7rem">' + ts + '</div></div>';
+    }}).join('');
+  }});
+}}
+
+loadAuditLog(null);
+</script>"""
+
+
+async def formulas_tab_partial(request: Request):
+    return HTMLResponse(_formulas_tab_html())
+
+
 def _list_workspace_files() -> list[str]:
     assert _monty is not None
     return _monty.storage.list_files()
@@ -1295,6 +1457,64 @@ async def api_version_restore(request: Request):
     return JSONResponse({"ok": True, "name": version["file_name"], "content": version["content"]})
 
 
+async def api_formulas(request: Request):
+    assert _monty is not None
+    return JSONResponse(_monty.formulas.list_all())
+
+
+async def api_formula_get(request: Request):
+    assert _monty is not None
+    name = request.query_params.get("name", "")
+    try:
+        return JSONResponse(_monty.formulas.get_info(name))
+    except KeyError:
+        return JSONResponse({"error": "not found"}, status_code=404)
+
+
+async def api_formula_save(request: Request):
+    assert _monty is not None
+    body = await request.json()
+    name = body.get("name", "").strip()
+    expr = body.get("expr", "").strip()
+    vars_list = body.get("vars", [])
+    description = body.get("description", "")
+    if not name or not expr:
+        return JSONResponse({"error": "name and expr required"}, status_code=400)
+    try:
+        result = _monty.formulas.define(name, expr, vars_list, description)
+        return JSONResponse({"ok": True, **result})
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+
+
+async def api_formula_delete(request: Request):
+    assert _monty is not None
+    body = await request.json()
+    name = body.get("name", "")
+    deleted = _monty.formulas.delete(name)
+    return JSONResponse({"ok": deleted})
+
+
+async def api_formula_evaluate(request: Request):
+    assert _monty is not None
+    body = await request.json()
+    name = body.get("formula", "")
+    values = body.get("values", {})
+    try:
+        return JSONResponse(_monty.formulas.evaluate(name, values))
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+
+
+async def api_formula_logs(request: Request):
+    assert _monty is not None
+    name = request.query_params.get("name")
+    run_id = request.query_params.get("run_id")
+    return JSONResponse(_monty.storage.list_formula_logs(
+        formula_name=name, run_id=int(run_id) if run_id else None,
+    ))
+
+
 def create_app(monty: Monty) -> Starlette:
     global _monty
     _monty = monty
@@ -1317,6 +1537,13 @@ def create_app(monty: Monty) -> Starlette:
         Route("/api/functions", api_functions),
         Route("/api/versions", api_versions),
         Route("/api/versions/restore", api_version_restore, methods=["POST"]),
+        Route("/api/formulas", api_formulas),
+        Route("/api/formula", api_formula_get),
+        Route("/api/formula", api_formula_save, methods=["POST"]),
+        Route("/api/formula", api_formula_delete, methods=["DELETE"]),
+        Route("/api/formula/evaluate", api_formula_evaluate, methods=["POST"]),
+        Route("/api/formula/logs", api_formula_logs),
+        Route("/formulas-tab", formulas_tab_partial),
     ])
 
 
