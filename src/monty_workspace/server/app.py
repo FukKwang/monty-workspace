@@ -148,6 +148,21 @@ margin-top:.75rem;display:flex;align-items:center;gap:.75rem;flex-wrap:wrap}
 .suspend-bar input{flex:1;min-width:120px;padding:.4rem .6rem;border:1px solid #fbbf24;border-radius:4px;
 background:#fff;color:var(--text);font-size:.85rem;font-family:ui-monospace,monospace}
 .suspend-bar .btn{white-space:nowrap}
+
+.cfn-card{padding:.75rem 1rem;border-bottom:1px solid var(--border)}
+.cfn-card:last-child{border-bottom:none}
+.cfn-sig{font-family:ui-monospace,monospace;font-size:.85rem;font-weight:600;color:var(--accent)}
+.cfn-sig .cfn-ret{color:var(--accent2);font-weight:500}
+.cfn-desc{color:var(--dim);font-size:.82rem;margin-top:2px}
+.cfn-table{width:100%;border-collapse:collapse;margin-top:.4rem;font-size:.78rem}
+.cfn-table th{text-align:left;padding:3px 8px;color:var(--dim);font-weight:600;font-size:.7rem;
+text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--border)}
+.cfn-table td{padding:3px 8px;border-bottom:1px solid var(--surface2)}
+.cfn-table td:first-child{font-family:ui-monospace,monospace;color:var(--accent);font-weight:500}
+.cfn-table .cfn-type{color:var(--accent2);font-family:ui-monospace,monospace}
+.cfn-table .cfn-default{color:var(--dim);font-style:italic;font-size:.75rem}
+.cfn-section{font-size:.72rem;font-weight:600;color:var(--dim);text-transform:uppercase;
+letter-spacing:.5px;margin-top:.5rem;margin-bottom:.15rem}
 """
 
 
@@ -250,6 +265,10 @@ def _editor_html() -> str:
       <div class="panel-body">
         <div class="output-area" id="output-area">Run code to see output...</div>
       </div>
+    </div>
+    <div class="panel" id="code-functions-panel" style="display:none">
+      <div class="panel-header"><h3 id="code-functions-title">Code Functions</h3></div>
+      <div id="code-functions-body" style="padding:0"></div>
     </div>
   </div>
 </div>
@@ -846,8 +865,79 @@ var _origLoadFile = window.loadFile;
 window.loadFile = function(name, content) {{
   _origLoadFile(name, content);
   checkTestFile();
+  loadCodeFunctions(name);
 }};
 checkTestFile();
+
+function loadCodeFunctions(name) {{
+  var panel = document.getElementById('code-functions-panel');
+  var body = document.getElementById('code-functions-body');
+  var title = document.getElementById('code-functions-title');
+  if (!name || name.startsWith('test_')) {{
+    panel.style.display = 'none';
+    return;
+  }}
+  fetch('/api/functions?file=' + encodeURIComponent(name))
+    .then(function(r) {{ return r.json(); }})
+    .then(function(fns) {{
+      if (!fns || !fns.length) {{
+        panel.style.display = 'none';
+        return;
+      }}
+      title.textContent = 'Code Functions (' + fns.length + ')';
+      body.innerHTML = fns.map(renderCodeFunction).join('');
+      panel.style.display = '';
+    }})
+    .catch(function() {{ panel.style.display = 'none'; }});
+}}
+
+function renderCodeFunction(fn) {{
+  var params = fn.parameters || {{}};
+  var paramKeys = Object.keys(params);
+  var ret = fn.returns || {{}};
+
+  var sig = '<span class="cfn-sig">' + escHtml(fn.name) + '(';
+  sig += paramKeys.map(function(k) {{
+    var p = params[k];
+    var s = k;
+    if (p.type) s += '<span class="cfn-type">: ' + escHtml(p.type) + '</span>';
+    if (p.default !== undefined && p.default !== null) s += ' = ' + escHtml(String(p.default));
+    return s;
+  }}).join(', ');
+  sig += ')';
+  if (ret.type && ret.type !== 'Any') sig += ' <span class="cfn-ret">&rarr; ' + escHtml(ret.type) + '</span>';
+  sig += '</span>';
+
+  var desc = fn.description ? '<div class="cfn-desc">' + escHtml(fn.description) + '</div>' : '';
+
+  var paramHtml = '';
+  if (paramKeys.length) {{
+    paramHtml = '<div class="cfn-section">Parameters</div><table class="cfn-table"><tr><th>Name</th><th>Type</th><th>Description</th></tr>';
+    paramKeys.forEach(function(k) {{
+      var p = params[k];
+      var typeStr = p.type || '';
+      if (!p.required && p.default !== undefined) typeStr += ' <span class="cfn-default">= ' + escHtml(String(p.default)) + '</span>';
+      paramHtml += '<tr><td>' + escHtml(k) + (p.required ? ' <span style="color:var(--err)">*</span>' : '') + '</td>';
+      paramHtml += '<td class="cfn-type">' + typeStr + '</td>';
+      paramHtml += '<td>' + escHtml(p.description || '') + '</td></tr>';
+    }});
+    paramHtml += '</table>';
+  }}
+
+  var retHtml = '';
+  if (ret.fields) {{
+    var retKeys = Object.keys(ret.fields);
+    if (retKeys.length) {{
+      retHtml = '<div class="cfn-section">Returns</div><table class="cfn-table"><tr><th>Field</th><th colspan="2">Description</th></tr>';
+      retKeys.forEach(function(k) {{
+        retHtml += '<tr><td>' + escHtml(k) + '</td><td colspan="2">' + escHtml(ret.fields[k]) + '</td></tr>';
+      }});
+      retHtml += '</table>';
+    }}
+  }}
+
+  return '<div class="cfn-card">' + sig + desc + paramHtml + retHtml + '</div>';
+}}
 </script>"""
 
 
@@ -1168,6 +1258,19 @@ async def api_run_detail(request: Request):
     return JSONResponse(run)
 
 
+async def api_functions(request: Request):
+    assert _monty is not None
+    from ..sandbox.inspector import inspect_functions
+    name = request.query_params.get("file", "")
+    if not name:
+        return JSONResponse({"error": "file parameter required"}, status_code=400)
+    f = _monty.storage.get_file(name)
+    if not f:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    functions = inspect_functions(f["content"], file_name=name)
+    return JSONResponse(functions)
+
+
 async def api_versions(request: Request):
     assert _monty is not None
     name = request.query_params.get("name", "")
@@ -1208,6 +1311,7 @@ def create_app(monty: Monty) -> Starlette:
         Route("/api/completions", api_completions),
         Route("/api/runs", api_runs),
         Route("/api/run-detail", api_run_detail),
+        Route("/api/functions", api_functions),
         Route("/api/versions", api_versions),
         Route("/api/versions/restore", api_version_restore, methods=["POST"]),
     ])
