@@ -2,14 +2,52 @@
 
 Sandboxed Python execution environment with host functions, web UI, and MCP server.
 
-## Quick Start
+## Install
 
 ```bash
-pip install -e .
-monty-web --workspace examples/lending/codes --host-module examples.lending.host_functions
+pip install monty-workspace
 ```
 
-Web UI at `http://localhost:8080`. MCP server via `monty-mcp`.
+## Quick Start
+
+### Web UI
+
+```bash
+monty-web --workspace ./codes --host-module my_app.host_functions
+```
+
+Web UI at `http://localhost:8080`.
+
+### MCP Server
+
+```bash
+monty-mcp --workspace ./codes --name monty-workspace
+```
+
+### Python Library
+
+```python
+from monty_workspace import Monty, HostFunctionRegistry
+
+registry = HostFunctionRegistry()
+
+@registry.register("query_user", "Look up user by name")
+def query_user(params):
+    return {"name": params["name"], "score": 750}
+
+monty = Monty(workspace_dir="./codes")
+monty.registry = registry
+
+result = monty.run('result = query_user({"name": "Alice"})', {})
+print(result.value)  # {"name": "Alice", "score": 750}
+```
+
+Key concepts:
+- **`inputs`** — dict of runtime inputs, available as global in sandbox code
+- **`result`** — assign output to this variable, sandbox captures it as return value
+- **Host functions** — registered Python functions callable from sandbox code
+- **`monty.run(code, inputs)`** — returns `RunResult` with `.success`, `.value`, `.error`
+- **`monty.run_tests(solution_code, test_code)`** — returns `TestResult` with `.passed`, `.failures`, `.total`
 
 ## Writing Code via API
 
