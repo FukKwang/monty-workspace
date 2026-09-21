@@ -5,6 +5,8 @@ from __future__ import annotations
 import html
 from typing import TYPE_CHECKING
 
+from ..sandbox.runner import SandboxRunner
+
 from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import HTMLResponse, JSONResponse
@@ -1088,8 +1090,9 @@ async def api_file_save(request: Request):
     content = body.get("content", "")
     if not name or ".." in name or "/" in name:
         return JSONResponse({"error": "invalid filename"}, status_code=400)
+    syntax_error = SandboxRunner._compile_check(content, name) if name.endswith(".py") else None
     result = _monty.storage.save_file(name, content)
-    return JSONResponse({"ok": True, **result})
+    return JSONResponse({"ok": True, "syntax_error": syntax_error, **result})
 
 
 async def api_run(request: Request):

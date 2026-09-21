@@ -69,8 +69,10 @@ def create_mcp_server(monty: Monty) -> MCPServer:
         """Write/update a Python file in workspace."""
         if ".." in name or "/" in name:
             return json.dumps({"error": "invalid filename"})
+        from ..sandbox.runner import SandboxRunner
+        syntax_error = SandboxRunner._compile_check(content, name) if name.endswith(".py") else None
         result = monty.storage.save_file(name, content)
-        return json.dumps({"ok": True, **result})
+        return json.dumps({"ok": True, "syntax_error": syntax_error, **result})
 
     @mcp.tool()
     def list_snapshots(status: str = "pending") -> str:
