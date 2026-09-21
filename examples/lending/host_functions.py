@@ -538,27 +538,93 @@ def register_all(monty) -> None:
     r = monty.host_function
 
     r("query_borrower",
-      "query_borrower({'name': str}) -> dict: borrower profile")(query_borrower)
+      "query_borrower({'name': str}) -> dict: borrower profile",
+      sample={
+          "borrower_id": "B-001", "name": "Alice", "address": "Jl. Sudirman 123",
+          "city": "Jakarta", "phone": "+6281234567890", "email": "alice@example.com",
+          "credit_score": 720, "monthly_income": 15_000_000, "employment_status": "employed",
+      })(query_borrower)
     r("query_loans",
-      "query_loans({'borrower_id': str}) -> list: loans for borrower")(query_loans)
+      "query_loans({'borrower_id': str}) -> list: loans for borrower",
+      sample=[{
+          "loan_id": "L-001", "borrower_id": "B-001", "product": "bolt",
+          "amount": 50_000_000, "tenor_months": 12, "interest_rate": 12.5,
+          "status": "active", "dpd": 0, "disbursed_date": "2026-01-15",
+      }, {
+          "loan_id": "L-002", "borrower_id": "B-001", "product": "flash",
+          "amount": 25_000_000, "tenor_months": 6, "interest_rate": 18.0,
+          "status": "paid_off", "dpd": 0, "disbursed_date": "2025-06-01",
+      }])(query_loans)
     r("query_borrowers_by_city",
-      "query_borrowers_by_city({'city': str, 'limit': int=10}) -> list: borrowers in city")(query_borrowers_by_city)
+      "query_borrowers_by_city({'city': str, 'limit': int=10}) -> list: borrowers in city",
+      sample=[{
+          "borrower_id": "B-001", "name": "Alice", "city": "Jakarta",
+          "credit_score": 720, "monthly_income": 15_000_000,
+          "total_loans": 2, "total_outstanding": 75_000_000,
+      }])(query_borrowers_by_city)
     r("query_loan_details",
-      "query_loan_details({'loan_id': str}) -> dict: full loan details with payments/collateral")(query_loan_details)
+      "query_loan_details({'loan_id': str}) -> dict: full loan details with payments/collateral",
+      sample={
+          "loan": {"loan_id": "L-001", "borrower_id": "B-001", "product": "bolt",
+                   "amount": 50_000_000, "status": "active", "dpd": 0},
+          "payments": [{"payment_id": "P-001", "loan_id": "L-001", "amount": 5_000_000,
+                        "status": "completed", "payment_date": "2026-02-15"}],
+          "collateral": [{"collateral_id": "C-001", "loan_id": "L-001", "type": "vehicle",
+                          "appraised_value": 80_000_000, "status": "active"}],
+          "collection_records": [],
+      })(query_loan_details)
     r("query_payments",
-      "query_payments({'loan_id': str}) -> list: payment history")(query_payments)
+      "query_payments({'loan_id': str}) -> list: payment history",
+      sample=[{
+          "payment_id": "P-001", "loan_id": "L-001", "amount": 5_000_000,
+          "payment_date": "2026-02-15", "method": "transfer",
+          "status": "completed", "late_fee": 0,
+      }])(query_payments)
     r("query_collateral",
-      "query_collateral({'loan_id': str}) -> list: collateral items")(query_collateral)
+      "query_collateral({'loan_id': str}) -> list: collateral items",
+      sample=[{
+          "collateral_id": "C-001", "loan_id": "L-001", "type": "vehicle",
+          "description": "Toyota Avanza 2024", "appraised_value": 80_000_000,
+          "appraisal_date": "2026-01-10", "status": "active",
+      }])(query_collateral)
     r("query_guarantors",
-      "query_guarantors({'borrower_id': str}) -> list: guarantors")(query_guarantors)
+      "query_guarantors({'borrower_id': str}) -> list: guarantors",
+      sample=[{
+          "guarantor_id": "G-001", "borrower_id": "B-001", "name": "Bob",
+          "relationship": "spouse", "phone": "+6281234567891",
+          "monthly_income": 12_000_000, "guarantee_amount": 50_000_000,
+      }])(query_guarantors)
     r("query_collection_records",
-      "query_collection_records({'loan_id': str}) -> list: collection activity")(query_collection_records)
+      "query_collection_records({'loan_id': str}) -> list: collection activity",
+      sample=[{
+          "record_id": "CR-001", "loan_id": "L-001", "action_date": "2026-03-01",
+          "action_type": "phone_call", "outcome": "promise_to_pay",
+          "agent": "Charlie", "notes": "Borrower promised payment by Friday",
+          "next_action_date": "2026-03-08",
+      }])(query_collection_records)
     r("query_transactions",
-      "query_transactions({'borrower_id': str, 'limit': int=20}) -> list: transactions")(query_transactions)
+      "query_transactions({'borrower_id': str, 'limit': int=20}) -> list: transactions",
+      sample=[{
+          "transaction_id": "T-001", "borrower_id": "B-001", "date": "2026-02-15",
+          "type": "repayment", "amount": 5_000_000, "channel": "bank_transfer",
+          "reference": "TXN-12345678", "loan_id": "L-001",
+      }])(query_transactions)
     r("query_portfolio_summary",
-      "query_portfolio_summary({'city': str|None}) -> dict: portfolio stats")(query_portfolio_summary)
+      "query_portfolio_summary({'city': str|None}) -> dict: portfolio stats",
+      sample={
+          "scope": "all", "total_borrowers": 1500, "total_loans": 3200,
+          "total_outstanding": 50_000_000_000, "total_disbursed": 80_000_000_000,
+          "avg_loan_amount": 25_000_000, "avg_interest_rate": 14.5,
+          "npl_ratio": 5.2, "current_ratio": 82.0,
+          "dpd_30_ratio": 8.5, "dpd_60_ratio": 4.2, "dpd_90_ratio": 2.8,
+      })(query_portfolio_summary)
     r("query_delinquency_stats",
-      "query_delinquency_stats({'bucket': str|None}) -> list: DPD bucket stats")(query_delinquency_stats)
+      "query_delinquency_stats({'bucket': str|None}) -> list: DPD bucket stats",
+      sample=[
+          {"bucket": "current", "loan_count": 2600, "total_outstanding": 4_000_000_000, "avg_dpd": 0, "recovery_rate": 95.0},
+          {"bucket": "1-30", "loan_count": 300, "total_outstanding": 500_000_000, "avg_dpd": 15, "recovery_rate": 80.0},
+          {"bucket": "31-60", "loan_count": 150, "total_outstanding": 250_000_000, "avg_dpd": 45, "recovery_rate": 60.0},
+      ])(query_delinquency_stats)
 
     r("tabulate_data",
       "tabulate_data({'records': list[dict], ...}) -> sorted/filtered records via pandas")(tabulate_data)

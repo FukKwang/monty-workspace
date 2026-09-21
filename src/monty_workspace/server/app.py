@@ -181,11 +181,25 @@ def _page_html(body: str, active: str = "editor") -> str:
 def _editor_html() -> str:
     assert _monty is not None
     files = _list_workspace_files()
+    test_files = {f for f in files if f.startswith("test_")}
+    solution_files = [f for f in files if not f.startswith("test_")]
+    orphan_tests = [f for f in test_files if f"test_{f}" not in test_files and f[5:] not in solution_files]
+
     file_items = ""
-    for f in files:
+    for f in solution_files:
         file_items += (
-            f'<li hx-get="/api/file?name={_e(f)}" hx-target="#editor-area" '
-            f'hx-swap="innerHTML">{_e(f)}</li>\n'
+            f'<li onclick="fetch(\'/api/file?name={_e(f)}\').then(function(r){{return r.json()}}).then(function(d){{loadFile(d.name,d.content)}})">{_e(f)}</li>\n'
+        )
+        tf = f"test_{f}"
+        if tf in test_files:
+            file_items += (
+                f'<li onclick="fetch(\'/api/file?name={_e(tf)}\').then(function(r){{return r.json()}}).then(function(d){{loadFile(d.name,d.content)}})" '
+                f'style="padding-left:2rem;font-size:.78rem;color:var(--dim)">'
+                f'<span style="color:var(--accent2);margin-right:4px">&#9881;</span>{_e(tf)}</li>\n'
+            )
+    for f in orphan_tests:
+        file_items += (
+            f'<li onclick="fetch(\'/api/file?name={_e(f)}\').then(function(r){{return r.json()}}).then(function(d){{loadFile(d.name,d.content)}})">{_e(f)}</li>\n'
         )
     if not file_items:
         file_items = '<li class="empty">No files yet</li>'
@@ -216,6 +230,7 @@ def _editor_html() -> str:
         <h3 id="current-file-name">untitled.py</h3>
         <div class="toolbar" style="margin-left:auto">
           <button class="btn btn-primary" onclick="runCode()">&#9654; Run</button>
+          <button class="btn btn-ghost btn-sm" id="btn-test" onclick="runTests()" style="display:none">&#9881; Test</button>
           <button class="btn btn-success btn-sm" onclick="saveFile()">Save</button>
           <button class="btn btn-ghost btn-sm" onclick="showVersions()">Versions</button>
         </div>
@@ -636,21 +651,36 @@ window.refreshFileList = function refreshFileList() {{
   fetch('/api/files').then(function(r) {{ return r.json(); }}).then(function(files) {{
     var ul = document.querySelector('#file-list-area ul');
     ul.innerHTML = '';
-    files.forEach(function(f) {{
+    var testSet = {{}};
+    files.forEach(function(f) {{ if (f.indexOf('test_') === 0) testSet[f] = true; }});
+    var solutions = files.filter(function(f) {{ return f.indexOf('test_') !== 0; }});
+    var orphans = files.filter(function(f) {{ return f.indexOf('test_') === 0 && solutions.indexOf(f.slice(5)) === -1; }});
+
+    function makeLi(f, isChild) {{
       var li = document.createElement('li');
-      li.textContent = f;
-      li.setAttribute('hx-get', '/api/file?name=' + encodeURIComponent(f));
-      li.setAttribute('hx-target', '#editor-area');
-      li.setAttribute('hx-swap', 'innerHTML');
+      if (isChild) {{
+        li.style.paddingLeft = '2rem';
+        li.style.fontSize = '.78rem';
+        li.style.color = 'var(--dim)';
+        li.innerHTML = '<span style="color:var(--accent2);margin-right:4px">&#9881;</span>' + f;
+      }} else {{
+        li.textContent = f;
+      }}
       li.onclick = function() {{
         fetch('/api/file?name=' + encodeURIComponent(f))
           .then(function(r) {{ return r.json(); }})
           .then(function(d) {{ loadFile(f, d.content); }});
       }};
       if (f === currentFile) li.classList.add('active');
-      ul.appendChild(li);
+      return li;
+    }}
+
+    solutions.forEach(function(f) {{
+      ul.appendChild(makeLi(f, false));
+      var tf = 'test_' + f;
+      if (testSet[tf]) ul.appendChild(makeLi(tf, true));
     }});
-    htmx.process(ul);
+    orphans.forEach(function(f) {{ ul.appendChild(makeLi(f, false)); }});
   }});
 }}
 
@@ -716,19 +746,133 @@ function restoreVersion(id) {{
     }}
   }});
 }}
+
+function checkTestFile() {{
+  if (!currentFile) {{ document.getElementById('btn-test').style.display = 'none'; return; }}
+  var testName = currentFile.startsWith('test_') ? currentFile : 'test_' + currentFile;
+  fetch('/api/files').then(function(r) {{ return r.json(); }}).then(function(files) {{
+    var hasTest = files.indexOf(testName) !== -1 || currentFile.startsWith('test_');
+    document.getElementById('btn-test').style.display = hasTest ? '' : 'none';
+  }});
+}}
+
+window.runTests = function runTests() {{
+  if (!currentFile) return;
+  var inputs = {{}};
+  document.querySelectorAll('.input-chip').forEach(function(chip) {{
+    var key = chip.querySelector('.chip-key').textContent;
+    var val = chip.querySelector('input').value;
+    inputs[key] = val;
+  }});
+  var out = document.getElementById('output-area');
+  out.textContent = 'Running tests...';
+  out.className = 'output-area';
+  fetch('/api/test', {{
+    method: 'POST',
+    headers: {{'Content-Type': 'application/json'}},
+    body: JSON.stringify({{file_name: currentFile, inputs: inputs}})
+  }}).then(function(r) {{ return r.json(); }}).then(function(d) {{
+    if (d.error) {{
+      out.textContent = d.error;
+      out.className = 'output-area err';
+      return;
+    }}
+    showTestResult(d);
+  }}).catch(function(e) {{
+    out.textContent = 'Test failed: ' + e;
+    out.className = 'output-area err';
+  }});
+}}
+
+function showTestResult(d) {{
+  var out = document.getElementById('output-area');
+  var passed = d.tests ? d.tests.filter(function(t) {{ return t.passed; }}).length : 0;
+  var failed = d.total - passed;
+  var summary = passed + '/' + d.total + ' passed';
+  if (d.duration_ms) summary += ' (' + d.duration_ms + 'ms)';
+  if (d.solution_file) summary += '  [' + d.solution_file + ' + ' + d.test_file + ']';
+  out.textContent = summary;
+  out.className = d.passed ? 'output-area ok' : 'output-area err';
+
+  var oldTests = document.getElementById('test-results-panel');
+  if (oldTests) oldTests.remove();
+  var oldLogs = document.getElementById('fn-logs-panel');
+  if (oldLogs) oldLogs.remove();
+
+  if (d.tests && d.tests.length) {{
+    var panel = document.createElement('div');
+    panel.id = 'test-results-panel';
+    panel.className = 'panel';
+    panel.style.marginTop = '1rem';
+    var rows = d.tests.map(function(t) {{
+      var icon = t.passed ? '<span style="color:var(--ok)">&#10003;</span>' : '<span style="color:var(--err)">&#10007;</span>';
+      var errHtml = t.error ? '<div style="color:var(--err);font-size:.78rem;margin-top:2px;font-family:ui-monospace,monospace">' + escHtml(t.error) + '</div>' : '';
+      return '<div style="padding:.5rem .75rem;border-bottom:1px solid var(--border);font-size:.85rem">' +
+        icon + ' <span style="font-family:ui-monospace,monospace;font-weight:600">' + escHtml(t.name) + '</span>' +
+        errHtml + '</div>';
+    }}).join('');
+    panel.innerHTML = '<div class="panel-header"><h3>Tests (' + passed + '/' + d.total + ')</h3>' +
+      '<span style="margin-left:auto;font-size:.75rem;color:var(--dim)">using sample data</span></div>' + rows;
+    out.parentElement.parentElement.appendChild(panel);
+  }}
+
+  if (d.function_logs && d.function_logs.length) {{
+    var logPanel = document.createElement('div');
+    logPanel.id = 'fn-logs-panel';
+    logPanel.className = 'panel';
+    logPanel.style.marginTop = '1rem';
+    var logColors = {{'debug':'#9ca3af','info':'var(--dim)','warning':'#d97706','error':'var(--err)'}};
+    var logRows = d.function_logs.map(function(l) {{
+      var extra = l.logs && l.logs.length ? '<div style="font-size:.78rem;margin-top:2px">' + l.logs.map(function(m){{
+        var lvl = (m && m.level) || 'info';
+        var msg = (m && m.message) || (typeof m === 'string' ? m : JSON.stringify(m));
+        var color = logColors[lvl] || 'var(--dim)';
+        var ts = m && m.timestamp ? '<span style="color:#9ca3af;font-size:.7rem;margin-right:4px">' + m.timestamp.slice(11,23) + '</span>' : '';
+        return ts + '<span style="color:' + color + ';font-weight:600;font-size:.7rem;text-transform:uppercase;margin-right:4px">' + lvl + '</span><span style="color:' + color + '">' + escHtml(msg) + '</span>';
+      }}).join('<br>') + '</div>' : '';
+      return '<div style="padding:.5rem .75rem;border-bottom:1px solid var(--border);font-size:.83rem">' +
+        '<span style="color:var(--accent);font-weight:600;font-family:ui-monospace,monospace">' + escHtml(l.function) + '</span>' +
+        '<span style="color:var(--dim)">(' + (l.args||[]).map(function(a){{ return escHtml(JSON.stringify(a)); }}).join(', ') + ')</span>' +
+        ' <span style="color:var(--ok)">&rarr; ' + escHtml(JSON.stringify(l.result)) + '</span>' +
+        (l.duration_ms != null ? ' <span style="color:var(--dim);font-size:.75rem">' + l.duration_ms + 'ms</span>' : '') +
+        extra + '</div>';
+    }}).join('');
+    logPanel.innerHTML = '<div class="panel-header"><h3>Function Calls (' + d.function_logs.length + ')</h3></div>' + logRows;
+    out.parentElement.parentElement.appendChild(logPanel);
+  }}
+}}
+
+var _origLoadFile = window.loadFile;
+window.loadFile = function(name, content) {{
+  _origLoadFile(name, content);
+  checkTestFile();
+}};
+checkTestFile();
 </script>"""
 
 
 def _functions_html() -> str:
     assert _monty is not None
+    import json as json_mod
     descs = _monty.registry.descriptions
     human_fns = _monty.registry.human_input_functions
+    samples = _monty.registry.samples
     if not descs:
         return '<div class="empty">No host functions registered.</div>'
     cards = ""
     for name, desc in sorted(descs.items()):
         tag = ' <span class="tag">human input</span>' if name in human_fns else ""
-        cards += f'<div class="fn-card"><h4>{_e(name)}{tag}</h4><p>{_e(desc)}</p></div>\n'
+        sample_html = ""
+        if name in samples:
+            sample_json = _e(json_mod.dumps(samples[name], indent=2, default=str))
+            sample_html = (
+                f'<details style="margin-top:.5rem">'
+                f'<summary style="font-size:.75rem;color:var(--accent);cursor:pointer;font-weight:600">Sample Data</summary>'
+                f'<pre style="background:var(--code-bg);border:1px solid var(--border);border-radius:4px;'
+                f'padding:.5rem;font-size:.78rem;margin-top:.25rem;max-height:200px;overflow:auto;'
+                f'white-space:pre-wrap">{sample_json}</pre></details>'
+            )
+        cards += f'<div class="fn-card"><h4>{_e(name)}{tag}</h4><p>{_e(desc)}</p>{sample_html}</div>\n'
     return f"""<div class="panel">
 <div class="panel-header"><h3>Host Functions ({len(descs)})</h3></div>
 {cards}
@@ -941,11 +1085,68 @@ async def api_snapshots(request: Request):
     return JSONResponse(_monty.storage.list_snapshots(status=status or None))
 
 
+async def api_test(request: Request):
+    assert _monty is not None
+    import re as _re
+    import time
+    body = await request.json()
+    file_name = body.get("file_name", "")
+    inputs = body.get("inputs", {})
+
+    if file_name.startswith("test_"):
+        test_name = file_name
+        sol_name = _monty.get_solution_file(test_name)
+    else:
+        sol_name = file_name
+        test_name = _monty.get_test_file(file_name)
+
+    if not test_name:
+        return JSONResponse({"error": f"No test file found for {file_name}"}, status_code=404)
+
+    test_file = _monty.storage.get_file(test_name)
+    if not test_file:
+        return JSONResponse({"error": f"Test file {test_name} not found"}, status_code=404)
+
+    sol_code = ""
+    if sol_name:
+        sol_file = _monty.storage.get_file(sol_name)
+        if sol_file:
+            sol_code = sol_file["content"]
+
+    for key in _re.findall(r'inputs\[["\']([^"\']+)["\']\]', sol_code):
+        if key not in inputs:
+            inputs[key] = "test"
+
+    t0 = time.monotonic()
+    result = _monty.run_tests(sol_code, test_file["content"], inputs=inputs, use_samples=True)
+    duration_ms = int((time.monotonic() - t0) * 1000)
+
+    return JSONResponse({
+        "passed": result.passed,
+        "total": result.total,
+        "failures": result.failures,
+        "tests": result.tests,
+        "duration_ms": duration_ms,
+        "function_logs": result.function_logs,
+        "solution_file": sol_name,
+        "test_file": test_name,
+    })
+
+
+async def api_samples(request: Request):
+    assert _monty is not None
+    samples = _monty.registry.samples
+    return JSONResponse({
+        name: sample for name, sample in sorted(samples.items())
+    })
+
+
 async def api_completions(request: Request):
     assert _monty is not None
     descs = _monty.registry.descriptions
+    samples = _monty.registry.samples
     return JSONResponse([
-        {"name": name, "description": desc}
+        {"name": name, "description": desc, "sample": samples.get(name)}
         for name, desc in sorted(descs.items())
     ])
 
@@ -1001,7 +1202,9 @@ def create_app(monty: Monty) -> Starlette:
         Route("/api/file", api_file_save, methods=["POST"]),
         Route("/api/run", api_run, methods=["POST"]),
         Route("/api/resume", api_resume, methods=["POST"]),
+        Route("/api/test", api_test, methods=["POST"]),
         Route("/api/snapshots", api_snapshots),
+        Route("/api/samples", api_samples),
         Route("/api/completions", api_completions),
         Route("/api/runs", api_runs),
         Route("/api/run-detail", api_run_detail),

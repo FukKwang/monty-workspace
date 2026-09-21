@@ -24,6 +24,8 @@ class TestResult:
     passed: bool = False
     failures: list[str] = field(default_factory=list)
     total: int = 0
+    tests: list[dict[str, Any]] = field(default_factory=list)
+    function_logs: list[dict[str, Any]] = field(default_factory=list)
 
 
 class SandboxRunner:
@@ -158,20 +160,52 @@ class SandboxRunner:
     def run_tests(self, solution_code: str, test_code: str,
                   allowlist: list[str] | None = None,
                   inputs: dict[str, Any] | None = None,
-                  limits: dict | None = None) -> TestResult:
+                  limits: dict | None = None,
+                  use_samples: bool = True) -> TestResult:
+        import re as _re
         try:
             from pydantic_monty import Monty, ResourceLimits
         except ImportError as e:
             raise RuntimeError("pydantic-monty required: pip install pydantic-monty") from e
 
-        external_lookup = self._registry.build_lookup(allowlist)
+        test_names = _re.findall(r'def (test_\w+)\s*\(', test_code)
+        if not test_names:
+            return TestResult(passed=False, failures=["No test_* functions found"], total=0)
+
+        runner_snippet = "\n__test_results__ = []\n"
+        for name in test_names:
+            runner_snippet += (
+                f"try:\n"
+                f"    {name}()\n"
+                f"    __test_results__.append({{\"name\": \"{name}\", \"passed\": True, \"error\": None}})\n"
+                f"except Exception as __e:\n"
+                f"    __test_results__.append({{\"name\": \"{name}\", \"passed\": False, \"error\": str(__e)}})\n"
+            )
+        runner_snippet += "result = __test_results__\n"
+
+        combined = f"{solution_code}\n\n{test_code}\n\n{runner_snippet}"
+        call_logs: list[dict[str, Any]] = []
+        external_lookup = self._registry.build_lookup(
+            allowlist, call_logs=call_logs, use_samples=use_samples,
+        )
         wrapped = {"inputs": inputs or {}}
-        combined = f"{solution_code}\n\n{test_code}"
         rl = ResourceLimits(**(limits or self._limits or {}))
+
         try:
             with Monty() as pool:
                 with pool.checkout(limits=rl) as session:
                     session.feed_run(combined, inputs=wrapped, external_lookup=external_lookup)
-                    return TestResult(passed=True, total=test_code.count("assert "))
+                    tests = session.feed_run("result")
+                    failures = [t["error"] for t in tests if not t["passed"]]
+                    return TestResult(
+                        passed=len(failures) == 0,
+                        failures=failures,
+                        total=len(tests),
+                        tests=tests,
+                        function_logs=call_logs,
+                    )
         except Exception as e:
-            return TestResult(passed=False, failures=[str(e)], total=test_code.count("assert "))
+            return TestResult(
+                passed=False, failures=[str(e)], total=len(test_names),
+                function_logs=call_logs,
+            )

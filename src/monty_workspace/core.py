@@ -39,8 +39,9 @@ class Monty:
             self._runner = SandboxRunner(self.registry, self.config.sandbox.clamp())
         return self._runner
 
-    def host_function(self, name: str, description: str, *, human_input: bool = False) -> Callable:
-        return self.registry.register(name, description, human_input=human_input)
+    def host_function(self, name: str, description: str, *,
+                      human_input: bool = False, sample: Any = None) -> Callable:
+        return self.registry.register(name, description, human_input=human_input, sample=sample)
 
     def run(self, code: str, inputs: dict[str, Any] | None = None, **kwargs) -> RunResult:
         return self.runner.run(code, inputs, storage=self.storage, **kwargs)
@@ -59,6 +60,20 @@ class Monty:
 
     def run_tests(self, solution_code: str, test_code: str, **kwargs) -> TestResult:
         return self.runner.run_tests(solution_code, test_code, **kwargs)
+
+    def get_test_file(self, file_name: str) -> str | None:
+        if file_name.startswith("test_"):
+            return file_name
+        test_name = f"test_{file_name}"
+        f = self.storage.get_file(test_name)
+        return test_name if f else None
+
+    def get_solution_file(self, test_name: str) -> str | None:
+        if not test_name.startswith("test_"):
+            return test_name
+        sol_name = test_name[5:]
+        f = self.storage.get_file(sol_name)
+        return sol_name if f else None
 
     @property
     def workspace(self) -> Path:
