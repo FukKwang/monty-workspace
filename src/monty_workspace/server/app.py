@@ -1556,12 +1556,16 @@ def main():
     p.add_argument("--host", default="0.0.0.0")
     p.add_argument("--port", type=int, default=8080)
     p.add_argument("--workspace", default="workspace")
+    p.add_argument("--host-module", action="append", default=[],
+                   help="dotted module with register_all(monty); repeatable")
     args = p.parse_args()
 
     monty = MontyClass(
         server={"host": args.host, "port": args.port},
         workspace_dir=args.workspace,
     )
+    for module in args.host_module:
+        monty.load_host_module(module)
     app = create_app(monty)
     print(f"monty-workspace: http://{args.host}:{args.port}")
     uvicorn.run(app, host=args.host, port=args.port, log_level="info")

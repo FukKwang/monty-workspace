@@ -128,11 +128,15 @@ def main():
     p = argparse.ArgumentParser(prog="monty-mcp")
     p.add_argument("--workspace", default="workspace")
     p.add_argument("--name", default="monty-workspace")
+    p.add_argument("--host-module", action="append", default=[],
+                   help="dotted module with register_all(monty); repeatable")
     args = p.parse_args()
 
     monty = MontyClass(
         mcp={"name": args.name},
         workspace_dir=args.workspace,
     )
+    for module in args.host_module:
+        monty.load_host_module(module)
     server = create_mcp_server(monty)
     server.run()

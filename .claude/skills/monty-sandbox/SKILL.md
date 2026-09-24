@@ -110,7 +110,7 @@ EOF
 
 `m.run_tests(solution_code, test_code, use_samples=True)` returns `TestResult(passed, failures, total, tests)`.
 
-Note: the `monty-web` CLI does not load a host module. Only `formula_*` functions are registered there. To serve domain host functions, use a launcher script like `examples/lending/run.py` (`register_all(monty); monty.serve()`).
+To serve domain host functions, pass `--host-module <dotted.module>` (repeatable) to `monty-web` or `monty-mcp`. The module must define `register_all(monty)`. Example: `monty-web --workspace examples/lending/codes --host-module examples.lending.host_functions`. Without it, only `formula_*` functions exist.
 
 ## API reference
 

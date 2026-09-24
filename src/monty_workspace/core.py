@@ -51,6 +51,18 @@ class Monty:
                       human_input: bool = False, sample: Any = None) -> Callable:
         return self.registry.register(name, description, human_input=human_input, sample=sample)
 
+    def load_host_module(self, module: str) -> None:
+        """Import `module` (dotted path, resolved from cwd too) and call its `register_all(monty)`."""
+        import importlib
+        import os
+        import sys
+        if os.getcwd() not in sys.path:
+            sys.path.insert(0, os.getcwd())
+        mod = importlib.import_module(module)
+        if not hasattr(mod, "register_all"):
+            raise AttributeError(f"host module {module!r} has no register_all(monty) function")
+        mod.register_all(self)
+
     def run(self, code: str, inputs: dict[str, Any] | None = None, **kwargs) -> RunResult:
         return self.runner.run(code, inputs, storage=self.storage, **kwargs)
 

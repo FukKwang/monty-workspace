@@ -21,8 +21,10 @@ Web UI at `http://localhost:8080`.
 ### MCP Server
 
 ```bash
-monty-mcp --workspace ./codes --name monty-workspace
+monty-mcp --workspace ./codes --name monty-workspace --host-module my_app.host_functions
 ```
+
+`--host-module` (both CLIs, repeatable) imports a dotted module path, resolved from the current directory, and calls its `register_all(monty)` function. See `examples/lending/host_functions.py`.
 
 ### Python Library
 
