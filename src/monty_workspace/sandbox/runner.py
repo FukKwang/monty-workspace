@@ -34,6 +34,15 @@ class SandboxRunner:
         self._limits = limits
 
     @staticmethod
+    def _call_host(fn: Any, args: list[Any]) -> dict[str, Any]:
+        """Call a host function. An exception goes back into the sandbox, where try/except can catch it,
+        as feed_run(external_lookup=...) does."""
+        try:
+            return {"return_value": fn(*args)}
+        except Exception as e:
+            return {"exception": e}
+
+    @staticmethod
     def _compile_check(code: str, label: str = "<user>") -> str | None:
         try:
             compile(code, label, "exec")
@@ -105,8 +114,7 @@ class SandboxRunner:
                             value = on_suspend(name, args)
                             snapshot = snapshot.resume({"return_value": value})
                         elif name in external_lookup:
-                            result = external_lookup[name](*args)
-                            snapshot = snapshot.resume({"return_value": result})
+                            snapshot = snapshot.resume(self._call_host(external_lookup[name], args))
                         else:
                             snapshot = snapshot.resume_not_handled()
 
@@ -159,8 +167,7 @@ class SandboxRunner:
                             )
 
                         if name in external_lookup:
-                            result = external_lookup[name](*args)
-                            snapshot = snapshot.resume({"return_value": result})
+                            snapshot = snapshot.resume(self._call_host(external_lookup[name], args))
                         else:
                             snapshot = snapshot.resume_not_handled()
 
