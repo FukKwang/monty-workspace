@@ -50,6 +50,24 @@ Key concepts:
 - **Host functions** — registered Python functions callable from sandbox code
 - **`monty.run(code, inputs)`** — returns `RunResult` with `.success`, `.value`, `.error`
 - **`monty.run_tests(solution_code, test_code)`** — returns `TestResult` with `.passed`, `.failures`, `.total`
+- **Snippets** — shared pure-Python helpers preloaded into every run (see below)
+
+### Snippets
+
+A snippet is a function or class whose source is loaded into the sandbox before every script, so scripts call it like a built-in, with no import. Unlike host functions, snippet calls run inside the sandbox: they cost no suspension and do not count toward `max_suspensions`.
+
+```python
+@monty.snippet("Format a value for display")
+def fmt_v(v):
+    return f"<{v}>"
+
+monty.run("result = fmt_v(42)").value  # "<42>"
+```
+
+- The snippet must be defined in a `.py` file and use only what the sandbox supports. Only its own source is copied, so it cannot use host-side imports or globals. A snippet may call other snippets and host functions.
+- Snippets apply to every run path: `run`, `run_tests`, snapshots, MCP and REST.
+- A script that defines the same name overrides the snippet.
+- Discover them with MCP `list_snippets` or `GET /api/snippets` (`{name: {description, source}}`). They also appear in `GET /api/completions` and the Functions panel.
 
 ## Writing Code via API
 
@@ -317,6 +335,6 @@ The MCP server exposes the same functionality as tools for LLM agents:
 monty-mcp --workspace examples/lending/codes --name monty-workspace
 ```
 
-Available tools: `run_code`, `run_file`, `run_tests`, `list_files`, `read_file`, `write_file`, `list_host_functions`, `list_snapshots`, `resume_snapshot`.
+Available tools: `run_code`, `run_file`, `run_tests`, `list_files`, `read_file`, `write_file`, `list_host_functions`, `list_snippets`, `list_snapshots`, `resume_snapshot`.
 
 The `write_file` tool also returns `syntax_error` for Python files.

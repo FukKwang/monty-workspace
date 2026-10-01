@@ -50,6 +50,13 @@ class SandboxRunner:
         except SyntaxError as e:
             return f"SyntaxError: {e.msg} (line {e.lineno})"
 
+    def _load_snippets(self, session: Any) -> None:
+        # Fed as its own chunk so user error line numbers stay unshifted; snapshots carry these globals.
+        # ponytail: re-runs every snippet per run; dump once and load_session() if prelude cost shows up
+        prelude = self._registry.snippet_prelude
+        if prelude:
+            session.feed_run(prelude)
+
     def run(self, code: str, inputs: dict[str, Any] | None = None,
             allowlist: list[str] | None = None,
             limits: dict | None = None,
@@ -78,6 +85,7 @@ class SandboxRunner:
             try:
                 with Monty() as pool:
                     with pool.checkout(limits=rl) as session:
+                        self._load_snippets(session)
                         session.feed_run(code, inputs=wrapped, external_lookup=external_lookup)
                         value = session.feed_run("result")
                         return RunResult(success=True, value=value, function_logs=call_logs)
@@ -88,6 +96,7 @@ class SandboxRunner:
         try:
             with Monty() as pool:
                 with pool.checkout(limits=rl) as session:
+                    self._load_snippets(session)
                     snapshot = session.feed_start(code, inputs=wrapped)
                     while not isinstance(snapshot, MontyComplete):
                         if not isinstance(snapshot, FunctionSnapshot):
@@ -221,6 +230,7 @@ class SandboxRunner:
         try:
             with Monty() as pool:
                 with pool.checkout(limits=rl) as session:
+                    self._load_snippets(session)
                     session.feed_run(combined, inputs=wrapped, external_lookup=external_lookup)
                     tests = session.feed_run("result")
                     failures = [t["error"] for t in tests if not t["passed"]]

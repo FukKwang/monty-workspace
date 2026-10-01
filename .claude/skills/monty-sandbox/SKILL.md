@@ -37,6 +37,8 @@ Never guess a host function name or its argument shape. Get the list:
 - MCP: `list_host_functions`.
 - Python: `monty.registry.descriptions` and `monty.registry.samples`.
 
+Also list snippets (`list_snippets` / `GET /api/snippets`). Snippets are helper functions and classes preloaded into every run. Call them directly, with no import. They run inside the sandbox, so they cost no suspension. Prefer them over copying helper code into a script.
+
 The lending example registers its functions in `examples/lending/host_functions.py` (`register_all`). `human_input=True` functions (`ask_user`, `ask_number`, `ask_confirm`, `ask_choice`) suspend the run. Through `/api/run`, the response is `{"suspended": true, "snapshot_id": ...}`. Continue it with `POST /api/resume {"snapshot_id": N, "value": "<json>"}` or the MCP tool `resume_snapshot`.
 
 ## File template
@@ -123,6 +125,7 @@ To serve domain host functions, pass `--host-module <dotted.module>` (repeatable
 | Run code | `POST /api/run` `{code, inputs, file_name}` | `run_code(code, inputs_json)` / `run_file(name, inputs_json)` |
 | Run tests | `POST /api/test` `{file_name, inputs}` | `run_tests(solution_code, test_code, inputs_json)` |
 | Host functions | `GET /api/completions`, `GET /api/samples` | `list_host_functions` |
+| Snippets (preloaded helpers) | `GET /api/snippets` | `list_snippets` |
 | Suspended runs | `GET /api/snapshots`, `POST /api/resume` | `list_snapshots`, `resume_snapshot` |
 | History | `GET /api/runs?file=`, `GET /api/run-detail?id=` | none |
 | Versions | `GET /api/versions?name=`, `POST /api/versions/restore {id}` | none |

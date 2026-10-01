@@ -48,8 +48,13 @@ def create_mcp_server(monty: Monty) -> MCPServer:
 
     @mcp.tool()
     def list_host_functions() -> str:
-        """List all registered host functions with descriptions."""
+        """List all registered host functions with descriptions. Also see list_snippets for built-in helper code."""
         return json.dumps(monty.registry.descriptions, indent=2)
+
+    @mcp.tool()
+    def list_snippets() -> str:
+        """List snippets: shared helper functions/classes preloaded into every run. Call them directly, no import needed."""
+        return json.dumps(monty.registry.snippets, indent=2)
 
     @mcp.tool()
     def list_files() -> str:

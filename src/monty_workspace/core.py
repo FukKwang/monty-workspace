@@ -51,6 +51,10 @@ class Monty:
                       human_input: bool = False, sample: Any = None) -> Callable:
         return self.registry.register(name, description, human_input=human_input, sample=sample)
 
+    def snippet(self, description: str) -> Callable:
+        """Register a pure function or class that runs inside the sandbox and is available in every script."""
+        return self.registry.register_snippet(description)
+
     def load_host_module(self, module: str) -> None:
         """Import `module` (dotted path, resolved from cwd too) and call its `register_all(monty)`."""
         import importlib

@@ -949,7 +949,8 @@ def _functions_html() -> str:
     descs = _monty.registry.descriptions
     human_fns = _monty.registry.human_input_functions
     samples = _monty.registry.samples
-    if not descs:
+    snippets = _monty.registry.snippets
+    if not descs and not snippets:
         return '<div class="empty">No host functions registered.</div>'
     cards = ""
     for name, desc in sorted(descs.items()):
@@ -965,8 +966,15 @@ def _functions_html() -> str:
                 f'white-space:pre-wrap">{sample_json}</pre></details>'
             )
         cards += f'<div class="fn-card"><h4>{_e(name)}{tag}</h4><p>{_e(desc)}</p>{sample_html}</div>\n'
+    for name, sn in sorted(snippets.items()):
+        src = (f'<details style="margin-top:.5rem"><summary style="font-size:.75rem;color:var(--accent);'
+               f'cursor:pointer;font-weight:600">Source</summary><pre style="background:var(--code-bg);'
+               f'border:1px solid var(--border);border-radius:4px;padding:.5rem;font-size:.78rem;'
+               f'margin-top:.25rem;max-height:200px;overflow:auto">{_e(sn["source"])}</pre></details>')
+        cards += (f'<div class="fn-card"><h4>{_e(name)} <span class="tag">snippet</span></h4>'
+                  f'<p>{_e(sn["description"])}</p>{src}</div>\n')
     return f"""<div class="panel">
-<div class="panel-header"><h3>Host Functions ({len(descs)})</h3></div>
+<div class="panel-header"><h3>Host Functions ({len(descs)}) · Snippets ({len(snippets)})</h3></div>
 {cards}
 </div>"""
 
@@ -1403,7 +1411,15 @@ async def api_completions(request: Request):
     return JSONResponse([
         {"name": name, "description": desc, "sample": samples.get(name)}
         for name, desc in sorted(descs.items())
+    ] + [
+        {"name": name, "description": sn["description"], "sample": None}
+        for name, sn in sorted(_monty.registry.snippets.items())
     ])
+
+
+async def api_snippets(request: Request):
+    assert _monty is not None
+    return JSONResponse(_monty.registry.snippets)
 
 
 async def api_runs(request: Request):
@@ -1532,6 +1548,7 @@ def create_app(monty: Monty) -> Starlette:
         Route("/api/snapshots", api_snapshots),
         Route("/api/samples", api_samples),
         Route("/api/completions", api_completions),
+        Route("/api/snippets", api_snippets),
         Route("/api/runs", api_runs),
         Route("/api/run-detail", api_run_detail),
         Route("/api/functions", api_functions),

@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import ast
 import contextvars
+import inspect
+import textwrap
 import time
 from datetime import datetime, timezone
 from typing import Any, Callable
@@ -41,6 +44,29 @@ class HostFunctionRegistry:
         self._descriptions: dict[str, str] = {}
         self._human_input: set[str] = set()
         self._samples: dict[str, Any] = {}
+        self._snippets: dict[str, dict[str, str]] = {}
+
+    def register_snippet(self, description: str) -> Callable:
+        """Decorator: copy a function or class's source into every sandbox run, so it acts like a built-in."""
+        def decorator(obj: Any) -> Any:
+            try:
+                src = textwrap.dedent(inspect.getsource(obj))
+            except OSError as e:
+                raise ValueError(f"snippet {obj.__name__!r} must be defined in a .py file (source not found)") from e
+            node = ast.parse(src).body[0]
+            # node.lineno is the def/class line, after any decorators
+            src = "\n".join(src.splitlines()[node.lineno - 1:]) + "\n"
+            self._snippets[obj.__name__] = {"description": description, "source": src}
+            return obj
+        return decorator
+
+    @property
+    def snippets(self) -> dict[str, dict[str, str]]:
+        return {k: dict(v) for k, v in self._snippets.items()}
+
+    @property
+    def snippet_prelude(self) -> str:
+        return "\n\n".join(s["source"] for s in self._snippets.values())
 
     def register(self, name: str, description: str, *,
                  human_input: bool = False, sample: Any = None) -> Callable:
@@ -117,3 +143,4 @@ class HostFunctionRegistry:
         self._functions.clear()
         self._descriptions.clear()
         self._human_input.clear()
+        self._snippets.clear()
